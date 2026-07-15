@@ -1,36 +1,56 @@
-# 릴리즈 — tag(v*) push 시 사이드카 dist 아카이브를 빌드해 GitHub Release 자산으로 올린다.
+# 릴리즈 — main 에서 수동 dispatch 시 사이드카 dist 아카이브를 빌드해 owner-immutable
+# GitHub Release 자산으로 올린다. 버전/태그는 소유 manifest(Cargo.toml)에서 유도한다.
 # 소비측(플러그인 manifest sidecars[].reach.fetch = 이 자산 URL + sha256 핀)은 코어에 구현·검증 완료.
-# 버전업 = Cargo.toml version + tag 하나. (이 워크플로는 크레이트가 자기 repo 로 분리될 때 그대로
-# 이동한다 — 메인 repo 안에서는 실행되지 않는 동봉 템플릿.)
 name: release
+
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   release-darwin-arm64:
+    if: github.ref == 'refs/heads/main'
     runs-on: macos-14
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build
-        run: cargo build --release
-      - name: Stage dist
-        run: ./stage.sh /tmp/dist
-      - name: Archive (+sha256)
-        id: archive
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: "1.96.0"
+      - id: identity
         run: |
-          ver="${GITHUB_REF_NAME#v}"
+          ver="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          case "$ver" in ''|*[!0-9.]*) echo "invalid version: $ver" >&2; exit 1;; esac
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "tag=v$ver" >> "$GITHUB_OUTPUT"
+      - run: cargo build --release
+      - run: ./stage.sh /tmp/dist
+      - id: archive
+        run: |
+          ver="${{ steps.identity.outputs.version }}"
           out="soksak-sidecar-browser-chromium-$ver-darwin-arm64.tar.gz"
           /usr/bin/tar -czLf "$out" -C /tmp/dist .
           shasum -a 256 "$out" | tee "$out.sha256"
           echo "asset=$out" >> "$GITHUB_OUTPUT"
-      - name: Upload release assets
+      - name: Create least-privilege release token
+        id: release-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: ${{ vars.SOKSAK_RELEASE_CLIENT_ID }}
+          private-key: ${{ secrets.SOKSAK_RELEASE_PRIVATE_KEY }}
+          permission-administration: read
+          permission-contents: write
+      - name: Publish through owner-enforced immutable releases
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.release-token.outputs.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --generate-notes \
-            "${{ steps.archive.outputs.asset }}" \
-            "${{ steps.archive.outputs.asset }}.sha256"
+          enforced="$(gh api "repos/${{ github.repository }}/immutable-releases" --jq '.enabled and .enforced_by_owner')"
+          test "$enforced" = "true" || { echo "owner-enforced immutable releases must be enabled before tagging" >&2; exit 1; }
+          tag="${{ steps.identity.outputs.tag }}"
+          gh release create "$tag" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "$tag" --generate-notes \
+            "${{ steps.archive.outputs.asset }}" "${{ steps.archive.outputs.asset }}.sha256"

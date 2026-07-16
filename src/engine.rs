@@ -36,6 +36,41 @@ type CefCursorArg = *mut u8;
 #[cfg(not(target_os = "macos"))]
 type CefCursorArg = cef::CursorHandle;
 
+// 코어가 넘긴 raw 부모 핸들(usize)을 cef_window_handle_t 로. macOS=NSView*(*mut c_void)·linux=XID(c_ulong)
+// 는 프리미티브 캐스트, windows=HWND(*mut HWND__ 뉴타입, `cef::sys::HWND(pub *mut HWND__)`)는 필드 구성.
+#[cfg(not(target_os = "windows"))]
+#[inline]
+fn window_handle_from_raw(raw: usize) -> cef::sys::cef_window_handle_t {
+    raw as cef::sys::cef_window_handle_t
+}
+#[cfg(target_os = "windows")]
+#[inline]
+fn window_handle_from_raw(raw: usize) -> cef::sys::cef_window_handle_t {
+    cef::sys::HWND(raw as *mut _)
+}
+
+// 죽은 프로필 디렉토리 청소용 pid 생존 확인. unix=kill(pid,0)==0, windows=OpenProcess 성공 여부.
+#[cfg(not(target_os = "windows"))]
+#[inline]
+fn pid_alive(pid: i32) -> bool {
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+#[cfg(target_os = "windows")]
+#[inline]
+fn pid_alive(pid: i32) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid as u32) {
+            Ok(h) => {
+                let _ = CloseHandle(h);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+}
+
 // 임베드 대기 요청(플러그인 → 커맨드 → 여기). CEF 조작은 UI(메인) 스레드에서만 하므로 큐잉 후 pump 에서 적용.
 // 좌표(x,y,w,h)는 플랫폼 중립 top-left 원점 DIP(points) — 부모 뷰 안에서. macOS 는 apply 시 y-flip.
 struct CreateReq {
@@ -455,7 +490,7 @@ fn apply_pending() {
         let ns_y = flip_y(parent, r.y, r.h.max(1));
         // set_as_child 는 cef_window_handle_t(OS별: mac NSView*·win HWND·linux XID)를 받는다.
         let wi = WindowInfo::default().set_as_child(
-            r.nsview as cef::sys::cef_window_handle_t,
+            window_handle_from_raw(r.nsview),
             &Rect { x: r.x, y: ns_y, width: r.w.max(1), height: r.h.max(1) },
         );
         let mut client = CefClient::new();
@@ -619,10 +654,12 @@ fn apply_ops() {
                         host.was_resized();
                     }
                 } else if let Some(host) = find_browser(id).and_then(|b| b.host()) {
-                    let view = host.window_handle() as *mut c_void;
                     #[cfg(target_os = "macos")]
                     {
-                        // 자식 뷰의 superview(부모) 높이로 flip.
+                        // window_handle()=cef_window_handle_t(macOS=NSView*=*mut c_void). 자식 뷰의
+                        // superview(부모) 높이로 flip. windows/linux 는 HWND/XID 라 이 캐스트가 성립 안 하고
+                        // 자식창 리사이즈를 OS 가 부모 추종으로 처리하므로 was_resized 통지만 한다.
+                        let view = host.window_handle() as *mut c_void;
                         let parent = unsafe {
                             if view.is_null() {
                                 std::ptr::null_mut()
@@ -638,7 +675,7 @@ fn apply_ops() {
                     }
                     #[cfg(not(target_os = "macos"))]
                     {
-                        let _ = (view, x, y, w, h);
+                        let _ = (x, y, w, h);
                         host.was_resized();
                     }
                 }
@@ -1790,7 +1827,7 @@ pub fn initialize(dist_dir: &std::path::Path) -> bool {
     if let Ok(entries) = std::fs::read_dir(&cache_root) {
         for e in entries.flatten() {
             if let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) {
-                if pid != std::process::id() as i32 && unsafe { libc::kill(pid, 0) } != 0 {
+                if pid != std::process::id() as i32 && !pid_alive(pid) {
                     let _ = std::fs::remove_dir_all(e.path());
                 }
             }

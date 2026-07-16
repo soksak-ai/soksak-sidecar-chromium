@@ -48,3 +48,25 @@ jobs:
           echo "== vulkan ICDs =="; ls -la /usr/share/vulkan/icd.d/ || true
           xvfb-run -a --server-args="-screen 0 1280x1024x24" \
             ./target/release/harness "$PWD/dist" offscreen
+
+  windows-onscreen:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: "1.96.0"
+      - name: Point Cargo at a short target dir (CEF C++ wrapper crosses MAX_PATH otherwise)
+        run: Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_DIR=D:/t"
+      - name: Build the harness and the CEF subprocess helper
+        run: cargo build --release --features harness
+      - name: Stage the Windows dist (libcef.dll + CEF resources + helper.exe)
+        shell: bash
+        run: ./stage.sh "$PWD/dist"
+      - name: Run the harness offscreen and assert frames
+        shell: bash
+        # Windows runners have a desktop session (no xvfb needed); wgpu uses the DX12 WARP
+        # software adapter when there is no GPU. libcef.dll must be on PATH next to the process.
+        run: |
+          export PATH="$PWD/dist:$PATH"
+          "$CARGO_TARGET_DIR/release/harness.exe" "$PWD/dist" offscreen

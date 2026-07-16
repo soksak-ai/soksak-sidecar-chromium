@@ -6,7 +6,7 @@
 // 판정: 테스트 페이지가 window.cefQuery 라운드트립 결과를 document.title 로 보고하고, 하니스가
 // title 이벤트로 그것을 관찰한다 — Q_OK:pong 이면 PASS(exit 0), 아니면 FAIL(exit 1).
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 mod run {
     use std::ffi::{c_void, CStr};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -139,6 +139,11 @@ mod run {
                     panic!("Xlib 핸들이 아님 — X11 백엔드 필요(WINIT_UNIX_BACKEND=x11)")
                 };
                 h.window as usize
+            };
+            #[cfg(target_os = "windows")]
+            let surface = {
+                let RawWindowHandle::Win32(h) = raw else { panic!("Win32 핸들이 아님") };
+                h.hwnd.get() as usize
             };
             SURFACE.store(surface, Ordering::Relaxed);
             self.window = Some(window);
@@ -273,13 +278,13 @@ mod run {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 fn main() {
     run::main();
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn main() {
-    eprintln!("harness: macOS·linux 전용");
+    eprintln!("harness: macOS·linux·windows 전용");
     std::process::exit(1);
 }

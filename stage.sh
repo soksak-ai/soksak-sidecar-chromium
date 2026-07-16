@@ -3,7 +3,8 @@
 # 사용: stage.sh <dist-dir>   (cargo build --release 선행 전제; 이 크레이트 디렉토리에서 실행)
 set -euo pipefail
 dist="${1:?사용: stage.sh <dist-dir>}"
-src="target/release"
+# windows CI 는 MAX_PATH 회피로 CARGO_TARGET_DIR 을 짧은 루트로 옮긴다 — 빌드 산출물 위치를 그에 맞춘다.
+src="${CARGO_TARGET_DIR:-target}/release"
 
 mkdir -p "$dist"
 
@@ -41,6 +42,35 @@ if [ "$(uname -s)" = "Linux" ]; then
   ls -la "$dist"
   exit 0
 fi
+
+# ── Windows dist ──────────────────────────────────────────────────────────────
+# libcef.dll + 런타임 DLL(chrome_elf·libEGL·libGLESv2·vk_swiftshader·vulkan-1 등) + CEF 리소스 +
+# helper.exe 를 CEF 배포판에서 스테이징한다. helper.exe 이름은 엔진 browser_subprocess_path 와 일치해야
+# 한다(engine.rs: dist/soksak-sidecar-browser-chromium-helper.exe). git-bash 는 uname -s 가 MINGW*.
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    cefdir=$(ls -dt "$src/build/"cef-dll-sys-*/out/cef_windows_* 2>/dev/null | head -1)
+    if [ -z "$cefdir" ]; then
+      echo "windows CEF 추출 미발견" >&2
+      ls -la "$src/build/"cef-dll-sys-*/out/ 2>/dev/null >&2 || true
+      exit 1
+    fi
+    echo "== CEF windows 추출 구조 ($cefdir) =="
+    find "$cefdir" -maxdepth 2 -type d | sed "s#$cefdir#.#"
+    mkdir -p "$dist/locales"
+    find "$cefdir" -maxdepth 2 -name '*.dll' -exec cp -n {} "$dist/" \;
+    find "$cefdir" -maxdepth 2 -name '*.bin' -exec cp -n {} "$dist/" \; 2>/dev/null || true
+    find "$cefdir" -maxdepth 2 -name 'icudtl.dat' -exec cp {} "$dist/" \;
+    find "$cefdir" -maxdepth 2 -name '*.pak' -exec cp {} "$dist/" \;
+    find "$cefdir" -path '*/locales/*.pak' -exec cp {} "$dist/locales/" \;
+    cp "$src/soksak-sidecar-browser-chromium-helper.exe" "$dist/soksak-sidecar-browser-chromium-helper.exe"
+    cp -n "$src/soksak_sidecar_browser_chromium.dll" "$dist/soksak-sidecar-browser-chromium.dll" 2>/dev/null || true
+    if [ ! -e "$dist/libcef.dll" ]; then echo "libcef.dll 미스테이징 — 위 구조 확인" >&2; exit 1; fi
+    echo "스테이지 완료(windows): $dist"
+    ls -la "$dist"
+    exit 0
+    ;;
+esac
 
 # ── macOS dist ────────────────────────────────────────────────────────────────
 # dylib 은 원자적 교체(temp + mv). in-place cp 로 같은 경로를 덮어쓰면, 옛 dylib 을 이미 mmap 한

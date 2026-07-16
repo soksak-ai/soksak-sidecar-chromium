@@ -6,7 +6,7 @@
 // 판정: 테스트 페이지가 window.cefQuery 라운드트립 결과를 document.title 로 보고하고, 하니스가
 // title 이벤트로 그것을 관찰한다 — Q_OK:pong 이면 PASS(exit 0), 아니면 FAIL(exit 1).
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 mod run {
     use std::ffi::{c_void, CStr};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -124,12 +124,23 @@ mod run {
                 .with_title("engine harness")
                 .with_inner_size(winit::dpi::LogicalSize::new(760.0, 520.0));
             let window = event_loop.create_window(attrs).expect("window");
-            // surface = 창 콘텐츠 NSView(코어 content_view_of 대역).
+            // surface = 코어가 넘기는 부모 핸들(content_view_of 대역): macOS=창 콘텐츠 NSView,
+            // linux=창 XID(프레젠터가 그 아래 X11 child 창을 만든다). 엔진은 usize 로 받아 per-OS 해석.
             use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-            let RawWindowHandle::AppKit(h) = window.window_handle().expect("handle").as_raw() else {
-                panic!("AppKit 핸들이 아님");
+            let raw = window.window_handle().expect("handle").as_raw();
+            #[cfg(target_os = "macos")]
+            let surface = {
+                let RawWindowHandle::AppKit(h) = raw else { panic!("AppKit 핸들이 아님") };
+                h.ns_view.as_ptr() as usize
             };
-            SURFACE.store(h.ns_view.as_ptr() as usize, Ordering::Relaxed);
+            #[cfg(target_os = "linux")]
+            let surface = {
+                let RawWindowHandle::Xlib(h) = raw else {
+                    panic!("Xlib 핸들이 아님 — X11 백엔드 필요(WINIT_UNIX_BACKEND=x11)")
+                };
+                h.window as usize
+            };
+            SURFACE.store(surface, Ordering::Relaxed);
             self.window = Some(window);
 
             // 코어의 init 대역 — 메인 스레드(여기), distDir 전달.
@@ -176,6 +187,10 @@ mod run {
         }
 
         fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+            // 비-macOS: 코어(=하니스) 가 CEF 펌프를 tick 한다(macOS 는 GCD 가 코어 런루프에 자동 전달).
+            // 이게 Phase F 에서 실 코어의 메인루프가 하는 일의 하니스판이다.
+            #[cfg(not(target_os = "macos"))]
+            lib::soksak_sidecar_engine_tick();
             let Some(t0) = self.started else {
                 event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
                     Instant::now() + Duration::from_millis(50),
@@ -233,8 +248,14 @@ mod run {
                 println!("[harness] {}", if pass { "PASS" } else { "FAIL" });
                 std::process::exit(if pass { 0 } else { 1 });
             }
+            // 비-macOS 는 이 poll 이 곧 펌프 tick 주기 → ~60fps 로 촘촘히(CEF 로드·페인트 진행 확보).
+            // macOS 는 GCD 가 펌프를 따로 구동하므로 폴링만 100ms.
+            #[cfg(target_os = "macos")]
+            let poll = Duration::from_millis(100);
+            #[cfg(not(target_os = "macos"))]
+            let poll = Duration::from_millis(16);
             event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
-                Instant::now() + Duration::from_millis(100),
+                Instant::now() + poll,
             ));
         }
     }
@@ -252,13 +273,13 @@ mod run {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn main() {
     run::main();
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn main() {
-    eprintln!("harness: macOS 전용");
+    eprintln!("harness: macOS·linux 전용");
     std::process::exit(1);
 }

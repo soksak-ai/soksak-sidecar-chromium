@@ -415,7 +415,6 @@ fn schedule_pump(delay_ms: i64) {
 // PostMessage/타이머 — macOS 의 GCD 메인큐 자동 전달과 동형). 만기가 지난 예약을 실행하고, 활동 중이면
 // 다음 프레임을 재예약한다.
 #[cfg(not(target_os = "macos"))]
-#[allow(dead_code)]
 pub(crate) fn drive_pump() {
     let due = PUMP_DUE_MS.load(Ordering::SeqCst);
     if due != 0 && now_ms() >= due {

@@ -116,6 +116,15 @@ pub extern "C" fn soksak_sidecar_engine_shutdown() {
     let _ = std::panic::catch_unwind(engine::shutdown_engine);
 }
 
+// tick: 비-macOS 펌프 구동 — 코어 메인 스레드(=CEF UI 스레드)가 자기 런루프에서 프레임마다 부른다.
+// macOS 는 GCD 가 do_work 를 코어 런루프에 자동 전달하므로 이 심볼이 없다. windows/linux 코어는
+// 메시지 전용 창/glib idle 로 이 tick 을 배선한다(Phase F). 어느 스레드서 부르면 안 된다 — CEF UI 스레드만.
+#[cfg(not(target_os = "macos"))]
+#[no_mangle]
+pub extern "C" fn soksak_sidecar_engine_tick() {
+    let _ = std::panic::catch_unwind(engine::drive_pump);
+}
+
 // ── message: 불투명 요청 디스패치(soksak-spec-sidecar-browser 프로토콜) ─────────────────────────
 
 fn reply_into(buf: *mut SoksakBuf, value: serde_json::Value) {

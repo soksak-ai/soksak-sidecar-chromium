@@ -163,8 +163,9 @@ mod run {
             })
             .to_string();
             let abi = lib::soksak_sidecar_engine_abi();
-            let iface = unsafe { CStr::from_ptr((*abi).interface) }.to_string_lossy().to_string();
-            println!("[harness] abi={} interface={iface}", unsafe { (*abi).abi });
+            let iface = unsafe { CStr::from_ptr((*abi).interface_id) }.to_string_lossy().to_string();
+            let iver = unsafe { CStr::from_ptr((*abi).interface_version) }.to_string_lossy().to_string();
+            println!("[harness] abi={} interface={iface} version={iver}", unsafe { (*abi).abi });
             let rc = lib::soksak_sidecar_engine_init(&host, cfg.as_ptr(), cfg.len());
             println!("[harness] init rc={rc}");
             assert_eq!(rc, 0, "engine init 실패");

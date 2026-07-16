@@ -1,4 +1,4 @@
-// soksak-sidecar-browser-chromium — Chromium 엔진 사이드카의 C ABI 표면(soksak-sidecar-engine ABI@1).
+// soksak-sidecar-browser-chromium — Chromium 엔진 사이드카의 C ABI 표면(soksak-sidecar-engine ABI(버전은 abi 필드)).
 // 코어(sidecar.rs)가 dlopen 으로 이 심볼들을 해소한다. 규범 정의 = docs/SIDECARS.md §3.
 //
 // 계약 요점: 모든 export 는 catch_unwind 로 감싼다(-2 = 패닉 트랩 — FFI 경계 unwinding 금지),
@@ -26,9 +26,9 @@ pub const HOST_ABI_VERSION: u32 = 1;
 
 #[repr(C)]
 pub struct SoksakSidecarEngineAbi {
-    pub abi: u32,
-    pub interface: *const c_char,
-    pub version: *const c_char,
+    pub abi: u32,                         // 호스팅 ABI 버전 — 정확 일치만 수용
+    pub interface_id: *const c_char,      // 버전 없는 provider 계약 id
+    pub interface_version: *const c_char, // provider exact SemVer(크레이트 버전에서 유도)
 }
 unsafe impl Sync for SoksakSidecarEngineAbi {}
 
@@ -65,10 +65,13 @@ pub(crate) fn host_emit_json(value: &serde_json::Value) {
 
 // ── 자기기술(무매니페스트 — 바이너리가 곧 진실) ──────────────────────────────────────────────
 
+// interface_version 은 Cargo.toml version 이 단일 진실 — 리터럴 재진술 금지(이중진실 방지).
+static INTERFACE_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "\0");
+
 static ABI: SoksakSidecarEngineAbi = SoksakSidecarEngineAbi {
     abi: HOST_ABI_VERSION,
-    interface: c"soksak-spec-sidecar-browser".as_ptr(),
-    version: c"0.0.1".as_ptr(),
+    interface_id: c"soksak-spec-sidecar-browser".as_ptr(),
+    interface_version: INTERFACE_VERSION.as_ptr() as *const c_char,
 };
 
 // 모델 선언 = 이 심볼 가족(soksak_sidecar_engine_*)의 존재 그 자체 — model 필드로 재진술하지 않는다

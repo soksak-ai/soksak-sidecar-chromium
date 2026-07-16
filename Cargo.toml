@@ -41,6 +41,14 @@ raw-window-handle = { version = "0.6", optional = true }
 objc2 = "0.6"
 objc2-foundation = "0.3"
 
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+# 신규 플랫폼(win/linux) present = cef osr_texture_import(accelerated_osr) → wgpu::Texture → wgpu::Surface.
+# wgpu 는 cef 크레이트가 쓰는 버전(29)에 핀 — import_texture 가 그 wgpu::Device 를 받는다. macOS 는 raw
+# Metal(offscreen.rs)이라 이 의존을 안 받는다(dylib lean, frozen 불변).
+cef = { version = "149.3.0", default-features = false, features = ["accelerated_osr"] }
+wgpu = "29"
+raw-window-handle = "0.6"
+
 # 독립 워크스페이스 — 코어(src-tauri) 워크스페이스와 분리(cargo 는 멤버가 루트 하위여야 해서 형제
 # 디렉토리 편입 불가). 빌드·스테이징은 make sidecar-chromium 이 소유.
 [workspace]

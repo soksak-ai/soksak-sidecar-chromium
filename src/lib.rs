@@ -10,7 +10,10 @@
 
 mod engine;
 // 동결 오라클(검증 하니스 전용) — 프로덕션 프레젠터는 presenter/macos.rs. 오라클은 재활용하지 않는다.
+// equivalence 비교(멱등 검증 백본)가 아직 배선되지 않아 하니스 빌드에서 미사용 = 의도된 dead_code 를
+// 허용한다(offscreen.rs 는 byte 불변 유지 — allow 는 여기 mod 선언에만). 배송 dylib 엔 미포함.
 #[cfg(all(target_os = "macos", feature = "harness"))]
+#[allow(dead_code)]
 mod offscreen;
 mod presenter;
 

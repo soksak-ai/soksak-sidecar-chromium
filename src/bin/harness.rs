@@ -80,9 +80,11 @@ mod run {
         window: Option<winit::window::Window>,
         started: Option<Instant>,
         created: bool,
-        // 입력 검증 상태기계(offscreen 전용) — title 전이에 맞춰 다음 입력 메시지를 1회씩 보낸다.
+        // 입력 검증 상태기계(offscreen 전용) — title 전이에 맞춰 다음 입력 메시지를 보낸다.
         // 0=쿼리 대기, 1=클릭 송신됨, 2=휠 송신됨, 3=키 송신됨, 4=IME 송신됨.
         input_phase: u8,
+        // 현재 phase 입력을 마지막으로 보낸 시각 — 오래 전이가 없으면 재전송한다(racy 유실 견고화).
+        last_input: Instant,
     }
 
     // 입력 검증 단계 — 표면 id=1(단일 브라우저) 가정. 좌표는 표면-로컬 논리 px.
@@ -232,7 +234,23 @@ mod run {
                 if let Some(p) = next {
                     println!("[harness] 입력 단계 {p} 송신 (title={title:?})");
                     self.input_phase = p;
+                    self.last_input = Instant::now();
                     send_input_for_phase(p);
+                } else if self.input_phase >= 1
+                    && self.last_input.elapsed() > Duration::from_millis(700)
+                {
+                    // 전이가 안 일어난 채 오래 멈췄다 — 현재 phase 입력이 racy 하게 유실됐을 수 있다
+                    // (Windows OSR: 뷰 준비 직후 첫 입력이 드롭되는 타이밍 실측). 같은 phase 입력을
+                    // 재전송한다. 페이지 핸들러는 멱등(focus/wheel/key(keyDone 가드)/ime) 이고 최종
+                    // 단언(IME_OK:a한글)은 불변이라 검증 범위 약화가 아니다 — flaky 테스트의 견고화다.
+                    // linux/macOS 는 <700ms 에 전이하므로 이 재전송이 발동하지 않는다.
+                    println!(
+                        "[harness] 입력 단계 {} 재전송 (stuck {}ms, title={title:?})",
+                        self.input_phase,
+                        self.last_input.elapsed().as_millis()
+                    );
+                    self.last_input = Instant::now();
+                    send_input_for_phase(self.input_phase);
                 }
             }
 
@@ -273,7 +291,15 @@ mod run {
         let mode = args.next().unwrap_or_else(|| "windowed".into());
         println!("[harness] dist={} mode={mode}", dist.display());
         let event_loop = winit::event_loop::EventLoop::new().expect("event loop");
-        let mut app = App { dist, mode, window: None, started: None, created: false, input_phase: 0 };
+        let mut app = App {
+            dist,
+            mode,
+            window: None,
+            started: None,
+            created: false,
+            input_phase: 0,
+            last_input: Instant::now(),
+        };
         event_loop.run_app(&mut app).expect("run");
     }
 }

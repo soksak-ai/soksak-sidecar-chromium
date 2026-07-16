@@ -1,0 +1,50 @@
+# 온스크린 런타임 검증 — Linux 에서 하니스를 xvfb + 소프트웨어 Vulkan(lavapipe)로 구동해, 프레젠터의
+# present 경로가 실제 프레임을 낸다는 것을 증명한다(컴파일이 아니라 런타임). CI/lavapipe 엔 하드웨어
+# DMA-BUF 가 없어 CEF 가 on_paint(CPU) 로 폴백하고, present_cpu 가 프레임을 낸다. 하니스는 오프스크린
+# 브라우저를 만들고 매 프레임 엔진을 tick 한 뒤 stats.dbg.framesPresented > 0 + 라운드트립/입력을 단언한다
+# (PASS=exit 0). 엔진은 no_sandbox=1 이라 CI 에서 setuid 샌드박스가 필요 없다.
+name: onscreen
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: onscreen-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux-xvfb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: "1.96.0"
+      - name: Install CEF link/runtime deps, xvfb and software Vulkan (lavapipe)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq \
+            libglib2.0-dev xvfb mesa-vulkan-drivers libvulkan1 vulkan-tools \
+            libnss3 libnspr4 libgbm1 libgl1-mesa-dri \
+            libx11-6 libxext6 libxrender1 libxcomposite1 libxdamage1 libxrandr2 \
+            libxi6 libxtst6 libxkbcommon0 libxfixes3 \
+            libasound2t64 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 \
+            libpango-1.0-0 libcairo2
+      - name: Build the harness and the CEF subprocess helper
+        run: cargo build --release --features harness
+      - name: Stage the Linux dist (libcef.so + CEF resources + helper)
+        run: ./stage.sh "$PWD/dist"
+      - name: Run the harness offscreen under xvfb + lavapipe and assert frames
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/dist
+          WINIT_UNIX_BACKEND: x11
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          SOKSAK_SIDECAR_BROWSER_CHROMIUM_NO_TICK: "0"
+        run: |
+          echo "== vulkan ICDs =="; ls -la /usr/share/vulkan/icd.d/ || true
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" \
+            ./target/release/harness "$PWD/dist" offscreen

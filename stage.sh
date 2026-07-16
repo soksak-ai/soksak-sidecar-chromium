@@ -6,6 +6,41 @@ dist="${1:?사용: stage.sh <dist-dir>}"
 src="target/release"
 
 mkdir -p "$dist"
+
+# ── Linux dist ────────────────────────────────────────────────────────────────
+# libcef.so 는 빌드타임 링크되지만 런타임에도 dist 형제로 있어야 로드된다(LD_LIBRARY_PATH=dist).
+# CEF 리소스(icudtl.dat·*.pak·locales/)와 서브프로세스 helper 를 CEF 배포판(cef-dll-sys OUT_DIR)에서
+# 스테이징한다. 배포판 내부 구조(Release/·Resources/ 여부)는 find 로 탐색해 레이아웃에 견고하게.
+if [ "$(uname -s)" = "Linux" ]; then
+  cefdir=$(ls -dt "$src/build/"cef-dll-sys-*/out/cef_linux_* 2>/dev/null | head -1)
+  if [ -z "$cefdir" ]; then
+    echo "linux CEF 추출 미발견" >&2
+    ls -la "$src/build/"cef-dll-sys-*/out/ 2>/dev/null >&2 || true
+    exit 1
+  fi
+  echo "== CEF linux 추출 구조 ($cefdir) =="
+  find "$cefdir" -maxdepth 2 -type d | sed "s#$cefdir#.#"
+  mkdir -p "$dist/locales"
+  # libcef.so + 런타임 라이브러리 + V8 스냅샷 + sandbox
+  find "$cefdir" -maxdepth 2 \( -name 'libcef.so' -o -name 'libEGL.so' -o -name 'libGLESv2.so' \
+    -o -name 'libvulkan.so*' -o -name '*.bin' -o -name 'chrome-sandbox' \) \
+    -exec cp -n {} "$dist/" \; 2>/dev/null || true
+  find "$cefdir" -maxdepth 3 \( -name 'libvk_swiftshader.so' -o -name 'vk_swiftshader_icd.json' \) \
+    -exec cp -n {} "$dist/" \; 2>/dev/null || true
+  # CEF 리소스
+  find "$cefdir" -maxdepth 2 -name 'icudtl.dat' -exec cp {} "$dist/" \;
+  find "$cefdir" -maxdepth 2 -name '*.pak' -exec cp {} "$dist/" \;
+  find "$cefdir" -path '*/locales/*.pak' -exec cp {} "$dist/locales/" \;
+  # 서브프로세스 helper(browser_subprocess_path) + 사이드카 .so(배포 완결성; 하니스는 rlib 링크라 불요)
+  cp "$src/soksak-sidecar-browser-chromium-helper" "$dist/helper"
+  cp -n "$src/libsoksak_sidecar_browser_chromium.so" "$dist/soksak-sidecar-browser-chromium.so" 2>/dev/null || true
+  if [ ! -e "$dist/libcef.so" ]; then echo "libcef.so 미스테이징 — 위 구조 확인" >&2; exit 1; fi
+  echo "스테이지 완료(linux): $dist"
+  ls -la "$dist"
+  exit 0
+fi
+
+# ── macOS dist ────────────────────────────────────────────────────────────────
 # dylib 은 원자적 교체(temp + mv). in-place cp 로 같은 경로를 덮어쓰면, 옛 dylib 을 이미 mmap 한
 # 프로세스가 있을 때 서명된 페이지 캐시와 새 내용이 불일치해 다른(신선) 프로세스의 dlopen 이
 # "Code Signature Invalid"(SIGKILL)로 죽는다(실측). rename 은 새 inode 를 주어 옛 매핑과 분리 →

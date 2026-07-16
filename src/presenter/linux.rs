@@ -361,15 +361,66 @@ pub(crate) fn present(id: u32, info: &cef::AcceleratedPaintInfo) {
     if s.hidden {
         return;
     }
+    blit_to_surface(ctx, s, id, &src.create_view(&wgpu::TextureViewDescriptor::default()));
+}
+
+pub(crate) fn present_popup(id: u32, _info: &cef::AcceleratedPaintInfo) {
+    log_once(id, "linux 팝업 present 미구현 (v2)");
+}
+
+// CPU 폴백(on_paint) — 공유 텍스처(DMA-BUF) 미가용 호스트(SW GL/lavapipe 등, CI 포함)에서 CEF 가 주는
+// BGRA 버퍼를 wgpu 텍스처로 업로드해 같은 surface 파이프라인으로 렌더한다(cef-rs 예제 on_paint 패턴).
+pub(crate) fn present_cpu(id: u32, buffer: *const u8, w: i32, h: i32) {
+    if buffer.is_null() || w <= 0 || h <= 0 {
+        return;
+    }
+    let Some(ctx) = ctx() else { return };
+    let mut m = match SURFS.lock() {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    let Some(s) = m.get_mut(&id) else { return };
+    if s.hidden {
+        return;
+    }
+    let buf = unsafe { std::slice::from_raw_parts(buffer, (w * h * 4) as usize) };
+    let texture = ctx.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Cef CPU Texture"),
+        size: wgpu::Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: SURFACE_FORMAT,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    ctx.queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        buf,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * w as u32),
+            rows_per_image: Some(h as u32),
+        },
+        wgpu::Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
+    );
+    blit_to_surface(ctx, s, id, &texture.create_view(&wgpu::TextureViewDescriptor::default()));
+}
+
+// 소스 텍스처 뷰를 surface 에 화면정렬 quad 로 그려 present 한다(present/present_cpu 공유).
+fn blit_to_surface(ctx: &WgpuCtx, s: &Surf, id: u32, src_view: &wgpu::TextureView) {
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("Cef Texture Bind Group"),
         layout: &ctx.bind_group_layout,
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(
-                    &src.create_view(&wgpu::TextureViewDescriptor::default()),
-                ),
+                resource: wgpu::BindingResource::TextureView(src_view),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
@@ -414,11 +465,7 @@ pub(crate) fn present(id: u32, info: &cef::AcceleratedPaintInfo) {
     ctx.queue.submit(std::iter::once(encoder.finish()));
     frame.present();
     FRAMES_PRESENTED.fetch_add(1, Ordering::Relaxed);
-    log_once(id, "첫 프레임 present (DMA-BUF → wgpu::Texture → surface)");
-}
-
-pub(crate) fn present_popup(id: u32, _info: &cef::AcceleratedPaintInfo) {
-    log_once(id, "linux 팝업 present 미구현 (v2)");
+    log_once(id, "첫 프레임 present (wgpu::Texture → surface)");
 }
 
 // id 별 1회 에러 로그 — 조용한 강등 금지(스펙 P 규칙), 프레임마다 폭주 금지.

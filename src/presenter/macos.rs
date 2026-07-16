@@ -349,6 +349,11 @@ pub(crate) fn present_popup(id: u32, info: &cef::AcceleratedPaintInfo) {
     present_target(id, info.shared_texture_io_surface, info.extra.coded_size.width, info.extra.coded_size.height, true);
 }
 
+// CPU 폴백(on_paint) — macOS offscreen 은 공유 텍스처(IOSurface) 전용이라 CPU 프레임은 드랍(1회 로그).
+pub(crate) fn present_cpu(id: u32, _buffer: *const u8, _w: i32, _h: i32) {
+    log_once(id, "CPU on_paint 경로 감지 — 공유 텍스처 비활성, 프레임 드랍");
+}
+
 fn present_target(id: u32, cef_surface: *mut c_void, coded_w: i32, coded_h: i32, popup: bool) {
     if cef_surface.is_null() || coded_w <= 0 || coded_h <= 0 {
         return;

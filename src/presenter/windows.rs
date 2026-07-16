@@ -102,6 +102,14 @@ pub(crate) fn present_popup(id: u32, info: &cef::AcceleratedPaintInfo) {
     log_once(id, "windows 팝업 present 미구현 (Phase C/D)");
 }
 
+// CPU 폴백(on_paint) — linux 와 동형(BGRA 버퍼 → wgpu 텍스처 → surface). CI 에서 작성·검증.
+pub(crate) fn present_cpu(id: u32, buffer: *const u8, w: i32, h: i32) {
+    if buffer.is_null() || w <= 0 || h <= 0 {
+        return;
+    }
+    log_once(id, "windows CPU present 미구현 (Phase C/D: BGRA 버퍼 → wgpu::Texture → surface)");
+}
+
 // id 별 1회 에러 로그 — 조용한 강등 금지(스펙 P 규칙), 프레임마다 폭주 금지. reference 와 동일.
 static LOGGED: LazyLock<Mutex<std::collections::HashSet<(u32, &'static str)>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));

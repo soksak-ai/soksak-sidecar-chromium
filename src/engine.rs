@@ -1611,15 +1611,19 @@ wrap_render_handler! {
         fn on_paint(
             &self,
             browser: Option<&mut Browser>,
-            _type_: PaintElementType,
+            type_: PaintElementType,
             _dirty_rects: Option<&[Rect]>,
-            _buffer: *const u8,
-            _width: ::std::os::raw::c_int,
-            _height: ::std::os::raw::c_int,
+            buffer: *const u8,
+            width: ::std::os::raw::c_int,
+            height: ::std::os::raw::c_int,
         ) {
-            // 공유 텍스처 비활성 환경의 CPU 폴백 — 조용한 강등 금지(스펙 P2): 드랍 + 1회 로그.
+            // 공유 텍스처 비활성 환경(SW GL/lavapipe 등)의 CPU 폴백 — PET_VIEW 만. presenter 가 BGRA 버퍼를
+            // 소비한다(macOS 는 공유텍스처 전용이라 드랍, wgpu 프레젠터는 업로드해 렌더). 조용한 강등 금지.
+            if type_ != PaintElementType::default() {
+                return;
+            }
             if let Some(id) = browser.map(|b| b.identifier()).and_then(engine_id_of) {
-                crate::presenter::log_once(id, "CPU on_paint 경로 감지 — 공유 텍스처 비활성, 프레임 드랍");
+                crate::presenter::present_cpu(id, buffer, width as i32, height as i32);
             }
         }
     }

@@ -1754,12 +1754,8 @@ pub fn initialize(dist_dir: &std::path::Path) -> bool {
             return false;
         }
     }
-    // Phase E: linux=libcef.so / windows=libcef.dll 적재(.framework 는 macOS 전용). 현재 미적재.
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = &dist_dir;
-        eprintln!("[chromium] CEF 적재 미구현 (Phase E: linux/windows libcef)");
-    }
+    // linux/windows 는 libcef 를 빌드타임 링크(cef-dll-sys `rustc-link-lib=dylib=cef`/`libcef`)하므로 런타임
+    // 프레임워크 로드가 불요하다(.framework 런타임 로더는 macOS 전용). 리소스 경로는 아래 settings 에서 지정.
     // NSApp 에 CefAppProtocol 주입 — framework 로드 후(프로토콜 심볼이 그 이미지에 등록됨),
     // cef::initialize 이전. 메서드 주입 + 프로토콜 conformance 둘 다 여기서 확정된다.
     #[cfg(target_os = "macos")]
@@ -1823,6 +1819,20 @@ pub fn initialize(dist_dir: &std::path::Path) -> bool {
         // 최외곽 번들이 곧 helper .app 이므로 브라우저 쪽도 같은 번들을 메인으로 선언해 서비스명을 일치시킨다
         // (검증된 기존 메커니즘의 재지향).
         settings.main_bundle_path = CefString::from(helper_app.to_string_lossy().as_ref());
+    }
+    // linux/windows: libcef 링크됨 → CEF 리소스(icudtl.dat·locales·*.pak)·helper 서브프로세스를 dist 레이아웃으로.
+    // framework_dir_path·main_bundle_path 는 macOS .framework/.app 전용 개념이라 설정하지 않는다.
+    #[cfg(not(target_os = "macos"))]
+    {
+        let helper = if cfg!(target_os = "windows") {
+            dist_dir.join("soksak-sidecar-browser-chromium-helper.exe")
+        } else {
+            dist_dir.join("soksak-sidecar-browser-chromium-helper")
+        };
+        settings.browser_subprocess_path = CefString::from(helper.to_string_lossy().as_ref());
+        settings.resources_dir_path = CefString::from(dist_dir.to_string_lossy().as_ref());
+        settings.locales_dir_path =
+            CefString::from(dist_dir.join("locales").to_string_lossy().as_ref());
     }
     let mut app = CefApp::new();
     let ok = cef::initialize(

@@ -201,7 +201,12 @@ mod run {
                     (0, t) if t.starts_with("Q_OK:") && frames > 0 => Some(1),
                     (1, "CLICK_OK") => Some(2),
                     (2, t) if t.starts_with("WHEEL_OK:down") => Some(3),
-                    (3, t) if t.starts_with("KEY_OK:65") => Some(4),
+                    // KEY_OK:65 은 char 'a' input 이벤트가 즉시 IME_OK:a 로 덮어써(테스트페이지 설계) title
+                    // 폴링이 그 찰나를 놓치면 phase 4 를 못 보내 플래키 FAIL 이 났다(베이스라인도 동일: 2/6 FAIL,
+                    // 리팩터 전부터 있던 레이스). key 성공의 정착 상태 IME_OK:a 도 트리거로 인정해 결정적으로
+                    // 만든다. 최종 단언(IME_OK:a한글)은 불변 — 검증 범위 약화 아님. IME_OK:a 는 KEY_OK 를
+                    // 함의하므로(input 핸들러가 KEY_OK/IME 일 때만 IME_OK 로 전이) key 포워딩 검증도 유지된다.
+                    (3, t) if t.starts_with("KEY_OK:65") || t == "IME_OK:a" => Some(4),
                     _ => None,
                 };
                 if let Some(p) = next {

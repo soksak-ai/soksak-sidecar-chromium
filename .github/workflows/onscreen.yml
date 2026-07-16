@@ -51,11 +51,7 @@ jobs:
 
   windows-onscreen:
     runs-on: windows-2025
-    # 현재까지: 컴파일·스테이징·present(DX12/WARP 로 프레임 렌더)·cefQuery 라운드트립은 통과하고,
-    # 입력 상태기계(클릭→포커스)에서 멈춘다 — windowless CEF 입력이 Windows 에서 다르게 동작하는 별개
-    # 이슈(입력 포워딩 코드는 macOS·Linux 런타임에서 검증된 플랫폼-중립 경로다). present 검증 신호를
-    # 잃지 않도록 job 은 계속 돌리되, 입력 라운드트립이 고쳐질 때까지 워크플로우를 hard-fail 시키지 않는다.
-    continue-on-error: true
+    # Linux 와 동일한 blocking 게이트 — present + 전체 입력 라운드트립(IME_OK:a한글 + frames)을 단언한다.
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30

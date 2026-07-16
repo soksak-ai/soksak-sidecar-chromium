@@ -73,11 +73,12 @@ wgpu 를 끌어오지 않는다.
   xvfb + lavapipe 로 오프스크린 구동하면 프레젠터가 실제 프레임을 present 하고, cefQuery + 입력(IME 포함)
   라운드트립이 통과한다.
 - **Windows**: `presenter/windows.rs`(같은 wgpu present + HWND child 창)는 컴파일·링크 통과하고,
-  `onscreen.yml` 의 windows job 이 harness 를 실행(DX12 WARP 소프트웨어 어댑터)한다: Windows CEF dist 를
-  스테이징하고 실제 프레임을 present 하며 cefQuery 라운드트립이 통과한다. 입력 상태기계(클릭→포커스)는
-  아직 완결 안 됨 — Windows-특정 windowless 입력 후속(입력 포워딩 자체는 macOS·Linux 런타임에서 검증된
-  플랫폼-중립 경로). macOS 에서 빌드 불가(CEF C++ 래퍼가 Windows 리소스 컴파일러 필요)라 CI 가 유일 경로,
-  기본 target dir 이 `MAX_PATH` 를 넘어 CI 는 `CARGO_TARGET_DIR` 을 짧은 루트로 둔다.
+  `onscreen.yml` 의 windows job 이 harness 를 실행(DX12 WARP 소프트웨어 어댑터)해 **Linux 와 동일 기준**으로
+  검증한다: Windows CEF dist 스테이징·실제 프레임 present·전체 입력 라운드트립(IME_OK:a한글) 통과. Windows
+  전용 수정 3개: 브라우저 생성 직후 `WasResized`(OSR 입력 hit-test 가 뷰 확정을 요구 — Linux 는 회귀시켜
+  Windows 한정), CHAR 키코드(CEF 가 Windows 서 `windows_key_code` 를 문자로 해석), harness 입력 재전송
+  (첫 클릭이 OSR 뷰의 입력-준비 시점과 race). macOS 에서 빌드 불가라 CI 가 유일 경로, 기본 target dir 이
+  `MAX_PATH` 를 넘어 CI 는 `CARGO_TARGET_DIR` 을 짧은 루트로 둔다.
 - Linux/Windows CEF 는 빌드타임 링크(`cef-dll-sys` 가 `cargo::rustc-link-lib` 방출)라 런타임
   로더가 없다 — 리소스 경로(`resources_dir_path`·`locales_dir_path`·`browser_subprocess_path`)만
   설정한다. macOS 만 `.framework` 런타임 로더를 쓴다.
@@ -99,7 +100,7 @@ macOS 런루프가 GCD 큐를 비우는 것과 동형이다. 그 코어측 tick 
 | 다섯 타깃 컴파일+링크 | `cargo build --target <triple>` 매트릭스(build 는 링크, check 는 아님) | CI(`ci.yml`) |
 | macOS/Linux 코드 정합 | `cargo check --target <triple>`(exit 직접 잡기) | 로컬 |
 | 온스크린 렌더(Linux) | xvfb + lavapipe 에서 harness 실행, 프레임+입력 단언 | CI(`onscreen.yml`) |
-| 온스크린 렌더(Windows) | harness 실행(DX12/WARP), 프레임+cefQuery 단언 | CI(`onscreen.yml`, present 검증됨; 입력 라운드트립은 후속) |
+| 온스크린 렌더(Windows) | harness 실행(DX12/WARP), 프레임+전체 입력 단언 | CI(`onscreen.yml`) |
 | cross-OS 멱등 | 제어면 canonical 레코드 + per-OS 데이터면 fidelity | 구축 예정 |
 
 ## 디버깅
@@ -125,10 +126,8 @@ PASS(exit 0)=cefQuery 왕복 + offscreen 이면 present 경로·입력까지 성
 - **온스크린(Linux) — 완료**: `onscreen.yml` 이 Linux harness 를 빌드·Linux CEF dist 스테이징 후
   xvfb + 소프트웨어 Vulkan(lavapipe)로 오프스크린 구동한다. 프레젠터가 실제 프레임을 present 하고
   (`framesPresented` 증가) 전 입력 라운드트립이 통과 — macOS harness 와 동일 단언.
-- **온스크린(Windows) — present 완료, 입력 후속**: 같은 harness 를 windows-2025(DX12 WARP)에서 돌려
-  Windows dist 스테이징·실제 프레임 present·cefQuery 통과. 입력 상태기계는 클릭→포커스에서 멈춘다 —
-  Windows-특정 windowless 입력 이슈로 별도 추적하며, job 은 `continue-on-error` 라 present 신호를
-  잃지 않고 워크플로우를 fail 시키지 않는다.
+- **온스크린(Windows) — 완료**: 같은 harness 를 windows-2025(DX12 WARP)에서 돌려 Windows dist 스테이징·
+  실제 프레임 present·전체 입력 라운드트립(IME_OK:a한글) 통과 — Linux 와 동일 기준의 blocking 게이트.
 - **F — 예정**: 코어가 프레젠터에 per-OS 부모 핸들(X11 XID / HWND)을 macOS NSView 경로 옆에 넘기고,
   메인루프에서 `soksak_sidecar_engine_tick`(→`drive_pump`)를 tick(glib idle / 메시지 전용 창)한다;
   5타깃 릴리스 매트릭스 CI. 이 tick 의 사이드카 쪽은 이미 있고 온스크린 harness 가 구동한다.

@@ -1,0 +1,10 @@
+{
+  "id": "soksak-sidecar-browser-chromium",
+  "version": "0.0.2",
+  "releaseTag": "v0.0.2",
+  "repository": "https://github.com/soksak-ai/soksak-sidecar-browser-chromium",
+  "interface": {
+    "id": "soksak-spec-sidecar-browser",
+    "version": "0.0.2"
+  }
+}

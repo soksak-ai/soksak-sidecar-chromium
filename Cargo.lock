@@ -1340,7 +1340,7 @@ dependencies = [
 
 [[package]]
 name = "ndk-context"
-version = "0.0.1"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27b02d87554356db9e9a873add8782d4ea6e3e58ea071a9adb9a2e8ddb884a8b"
 
@@ -2252,7 +2252,7 @@ dependencies = [
 
 [[package]]
 name = "soksak-sidecar-browser-chromium"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "bytemuck",
  "cef",
@@ -3254,7 +3254,7 @@ dependencies = [
 
 [[package]]
 name = "windows-threading"
-version = "0.0.1"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66463ad2e0ea3bbf808b7f1d371311c80e115c0b71d60efc142cafbcfb057a6"
 dependencies = [

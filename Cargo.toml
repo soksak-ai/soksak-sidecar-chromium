@@ -3,7 +3,7 @@
 # 서드파티 임베딩 라이브러리 `cef`(CEF)의 이름은 이 크레이트 안에만 존재한다(docs/NAMING.md §2).
 [package]
 name = "soksak-sidecar-browser-chromium"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 publish = false
 

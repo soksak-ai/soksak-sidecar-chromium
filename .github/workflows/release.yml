@@ -90,6 +90,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.12.0"
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: "10.30.3"
       - id: identity
         run: |
           ver="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
@@ -100,6 +106,19 @@ jobs:
           pattern: dist-*
           path: dist
           merge-multiple: true
+      - run: node scripts/build-release.mjs --commit "${{ github.sha }}" --tag "${{ steps.identity.outputs.tag }}" --artifacts dist --out dist-release
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: soksak-ai/soksak-spec
+          ref: d7f54852754195527f125d1fc11362316157d19b
+          path: .dependency/soksak-spec
+      - name: Build the exact public validator without links
+        working-directory: .dependency/soksak-spec
+        run: |
+          pnpm --config.node-linker=hoisted --config.symlink=false install --frozen-lockfile
+          pnpm build
+          test -z "$(find . -type l -print -quit)"
+      - run: node scripts/validate-with-spec.mjs --spec-root .dependency/soksak-spec --release-dir dist-release
       - name: Create least-privilege release token
         id: release-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
@@ -115,6 +134,9 @@ jobs:
           enforced="$(gh api "repos/${{ github.repository }}/immutable-releases" --jq '.enabled and .enforced_by_owner')"
           test "$enforced" = "true" || { echo "owner-enforced immutable releases must be enabled before tagging" >&2; exit 1; }
           tag="${{ steps.identity.outputs.tag }}"
-          assets="$(find dist -type f \( -name '*.tar.gz' -o -name '*.sha256' \) | sort)"
+          assets="$(find dist dist-release -type f \( -name '*.tar.gz' -o -name '*.sha256' -o -name '*.json' \) | sort)"
           test "$(printf '%s\n' "$assets" | grep -c '\.tar\.gz$')" -eq 5 || { echo "expected 5 platform archives, got:" >&2; echo "$assets" >&2; exit 1; }
+          test "$(printf '%s\n' "$assets" | grep -c '\.tar\.gz\.sha256$')" -eq 5 || { echo "expected 5 archive checksums, got:" >&2; echo "$assets" >&2; exit 1; }
+          test "$(printf '%s\n' "$assets" | grep -c '/release\.json$')" -eq 1 || { echo "expected the owner release manifest, got:" >&2; echo "$assets" >&2; exit 1; }
+          test "$(printf '%s\n' "$assets" | grep -c '/conformance-[a-z]*\.json$')" -eq 3 || { echo "expected 3 conformance reports, got:" >&2; echo "$assets" >&2; exit 1; }
           gh release create "$tag" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "$tag" --generate-notes $assets

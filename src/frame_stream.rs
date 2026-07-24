@@ -173,9 +173,12 @@ fn accept_client(mut stream: TcpStream) {
     };
     // CORS 개방 — 소비자는 메인 웹뷰(fetch, 교차 출처 localhost)다. <img> 와 달리 fetch 는
     // CORS 대상이라 이 헤더가 없으면 연결 직후 응답이 거부된다(루프백 한정 서버라 개방 무해).
+    // Content-Type 은 불투명 바이트 스트림 — multipart/x-mixed-replace 를 주면 WebKit 이
+    // 레거시 멀티파트 로더로 특별취급해 첫 파트 도착 즉시 fetch 를 죽인다(실측: 파트가 오는
+    // 스트림만 Load failed, 침묵 스트림은 생존). 파트 프레이밍은 소비자가 직접 파싱한다.
     let ok = stream.write_all(
         b"HTTP/1.1 200 OK\r\n\
-          Content-Type: multipart/x-mixed-replace; boundary=sksframe\r\n\
+          Content-Type: application/octet-stream\r\n\
           Access-Control-Allow-Origin: *\r\n\
           Cache-Control: no-store\r\n\
           Connection: close\r\n\r\n",
